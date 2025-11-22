@@ -236,7 +236,7 @@ class EmpiricDistribution:
 
         for _ in range(n_samples):
             randi = random.uniform(0, 1)
-            print(randi)
+            #print(randi)
             for i in range(len(self.inverses)):
                 if(randi>=self.ranges_probs[i][0] and randi <= self.ranges_probs[i][1]):
                     val = float(self.inverses[i].subs(y, randi))
