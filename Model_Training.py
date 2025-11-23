@@ -11,11 +11,11 @@ import random
 from sympy import Symbol
 from datetime import time
 
-class Model_Training:
+class Buses:
     def __init__(self):
         pass
 
-    def generate_models(self):
+    def generate_model(self):
         #Importing data
         cleaner = Cleaner.Cleaner()
         cleaner.set_path_info({'7': '07_v2.xlsx', '50':'50.xlsx'})
@@ -85,9 +85,9 @@ class Model_Training:
 
         print("\n Proceso finalizado. Los modelos de tiempo de viaje han sido guardados en 'time_models.pkl'")
 
-    def generate_simulation(self, iterations=1000):
+    def generate_simulation(self, n_samples=1000):
         # Definición de Parámetros
-        NUM_ITERACIONES = iterations
+        NUM_ITERACIONES = n_samples
         TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
         TIME_INTERVALS = [
             ('07:00', '09:30'), 
@@ -167,7 +167,7 @@ class Model_Training:
         # Consolidación y Exportación
         if simulated_data:
             df_simulacion_final = pd.concat(simulated_data, ignore_index=True)
-            output_file = 'simulation_results_times.csv'
+            output_file = 'bus_results_times.csv'
             df_simulacion_final.to_csv(output_file, index=False)
             
             print("\n=======================================================")
@@ -175,8 +175,10 @@ class Model_Training:
             print(f"Total de registros simulados: {len(df_simulacion_final)}")
             print(f"Resultados guardados en: {output_file}")
             print("=======================================================")
+            #return df_simulacion_final
         else:
             print("\nSimulación finalizada sin generar datos.")
+            #return pd.DataFrame()
     
 
 
@@ -184,9 +186,9 @@ class Model_Training:
         # Carga y Pre-procesamiento Inicial de Datos
         try:
             # Intenta cargar el archivo de simulación de tiempos
-            df_simulacion = pd.read_csv('simulation_results_times.csv')
+            df_simulacion = pd.read_csv('bus_results_times.csv')
         except FileNotFoundError:
-            print("Error: No se encontró 'simulation_results_times.csv'. Ejecuta la simulación primero.")
+            print("Error: No se encontró 'bus_results_times.csv'. Ejecuta la simulación primero.")
             df_simulacion = None
 
         try:
@@ -279,3 +281,74 @@ class Model_Training:
             print(f"Iniciando generación de {len(todos_los_segmentos)} histogramas de tiempo...")
             for segmento in todos_los_segmentos:
                 graficar_histograma_tiempo_comparativo(segmento, df_simulacion, df_original)
+
+class PAX:
+    N_BUSES = 0
+    lambdas_saved = {}
+    TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
+    TIME_INTERVALS = [
+        ('07:00', '09:30'), 
+        ('13:30', '18:00'), 
+        ('06:00', '07:00'), 
+        ('09:30', '13:30'), 
+        ('18:30', '22:15') 
+    ]
+
+    def __init__(self):
+        pass
+
+    def generate_model(self, n_buses = 2):
+        cleaner = Cleaner.Cleaner()
+
+        cleaner.set_path_info({'7': '07_v2.xlsx', '50':'50.xlsx'})
+
+        df = cleaner.process_data(export_csv=False)
+
+        df['hora_salida'] = pd.to_datetime(df['hora_salida'], format='%H:%M').dt.time
+        df = df.dropna(subset=['Usuarios'])
+
+        #Calculating lambdas per interval and place
+        
+        self.N_BUSES = n_buses
+
+
+        REF_START, REF_END = '13:30', '18:00'
+        TARGET_START, TARGET_END = '18:30', '22:15'
+
+        for start_time, end_time in self.TIME_INTERVALS:
+            sub_df = df.loc[(df['hora_salida'].astype(str) >= start_time) & (df['hora_salida'].astype(str) < end_time)]
+            avg_cycle_time = sub_df.groupby('trayecto')['minutos_viaje'].mean().sum()
+
+            for t in self.TRAYECTOS:
+                key = f"{t}_{start_time.replace(':', '')}-{end_time.replace(':', '')}"
+                lambda_ = 0
+                if(start_time == TARGET_START):
+                    #special case, 20% less than the ('13:30', '18:00')
+                    lambda_ = self.lambdas_saved[f"{t}_{REF_START.replace(':', '')}-{REF_END.replace(':', '')}"]*.8
+                else:
+                    avg_pax_in_bus = sub_df.loc[sub_df['trayecto'] == t]['Usuarios'].mean()
+                    #print(avg_pax_in_bus, f'for key: {key}')
+                    # Lambda = avg_pax / (cycle_time/n_buses)
+                    lambda_ = avg_pax_in_bus / (avg_cycle_time/self.N_BUSES)
+
+                self.lambdas_saved[key] = lambda_
+    
+    def generate_simulation(self, n_samples = 10000):
+        #Asumiendo que es un Proceso de Poisson, entonces los tiempos de llegada se comportan como una exponencial
+
+        data_simulated = {}
+
+        for start_time, end_time in self.TIME_INTERVALS:
+            for t in self.TRAYECTOS:
+                for _ in range(n_samples):
+                    key = f"{t}_{start_time.replace(':', '')}-{end_time.replace(':', '')}"
+                    lambda_act = self.lambdas_saved[key]
+                    t_arrival = random.expovariate(lambda_act)
+                    if key not in data_simulated:
+                        data_simulated[key] = []
+                    data_simulated[key].append(t_arrival)
+
+
+        df_pax_simulated = pd.DataFrame(data_simulated)
+
+        df_pax_simulated.to_csv('pax_time_arrivals.csv', index=False)
