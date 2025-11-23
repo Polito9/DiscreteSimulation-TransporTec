@@ -11,7 +11,7 @@ import random
 from sympy import Symbol
 from datetime import time
 
-class Buses:
+class Buses_model:
     def __init__(self):
         pass
 
@@ -282,7 +282,7 @@ class Buses:
             for segmento in todos_los_segmentos:
                 graficar_histograma_tiempo_comparativo(segmento, df_simulacion, df_original)
 
-class PAX:
+class Pax_model:
     N_BUSES = 0
     lambdas_saved = {}
     TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
