@@ -85,52 +85,42 @@ class Buses_model:
 
         print("\n Proceso finalizado. Los modelos de tiempo de viaje han sido guardados en 'time_models.pkl'")
 
-    def generate_simulation(self, target_trayecto=None, target_interval=None, n_samples=1000):
+    def generate_simulation(self, n_samples=1000, target_time_interval=None):
         """
         Generates simulation data.
         
         Args:
-            target_trayecto (str, optional): Specific route to simulate (e.g., 'A2-GLAXO').
-            target_interval (tuple, optional): Specific time tuple (e.g., ('07:00', '09:30')).
-            n_samples (int): Number of iterations for Monte Carlo.
+            n_samples (int): Number of samples to generate.
+            target_time_interval (tuple, optional): Tuple ('HH:MM', 'HH:MM') to filter a specific interval.
+                                                    Example: ('07:00', '09:30')
         """
-        
-        # Definición de Parámetros Base
+        # Definición de Parámetros
         NUM_ITERACIONES = n_samples
+        TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
         
-        # 1. Configuración de TRAYECTOS
-        all_trayectos = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
-        if target_trayecto:
-            # Si el usuario pide uno específico, usamos solo ese
-            if target_trayecto not in all_trayectos:
-                print(f"Error: El trayecto '{target_trayecto}' no es válido.")
-                return
-            TRAYECTOS = [target_trayecto]
-        else:
-            # Si es None, corremos todos
-            TRAYECTOS = all_trayectos
-
-        # 2. Configuración de INTERVALOS DE TIEMPO
-        all_time_intervals = [
-            ('07:00', '09:30'), 
-            ('13:30', '18:00'), 
-            ('06:00', '07:00'), 
-            ('09:30', '13:30'), 
-            ('18:30', '22:15') # Tramo con lógica especial
+        # Lista completa de intervalos
+        ALL_TIME_INTERVALS = [
+            ('07:00', '09:30'),
+            ('13:30', '18:00'),
+            ('06:00', '07:00'),
+            ('09:30', '13:30'),
+            ('18:30', '22:15') # Tramo con lógica especial (sustitución)
         ]
-        
-        if target_interval:
-            # Si el usuario pide un intervalo específico
-            # Nota: target_interval debe ser una tupla, ej: ('18:30', '22:15')
-            if target_interval not in all_time_intervals:
-                 print(f"Advertencia: El intervalo '{target_interval}' no está en la lista estándar, pero se intentará simular.")
-            TIME_INTERVALS = [target_interval]
+
+        # --- MODIFICACIÓN: Lógica de filtrado de intervalo ---
+        if target_time_interval:
+            if target_time_interval in ALL_TIME_INTERVALS:
+                TIME_INTERVALS = [target_time_interval]
+                #print(f"-> Configuración: Simulando ÚNICAMENTE el intervalo {target_time_interval}")
+            else:
+                #print(f"-> Advertencia: El intervalo {target_time_interval} no existe en la configuración. Se simularán todos.")
+                TIME_INTERVALS = ALL_TIME_INTERVALS
         else:
-            # Si es None, corremos todos
-            TIME_INTERVALS = all_time_intervals
+            TIME_INTERVALS = ALL_TIME_INTERVALS
+        # -----------------------------------------------------
 
         # Clave del segmento usado como proxy para TIEMPO
-        PROXY_KEY = 'A2-GLAXO_0600-0700' 
+        PROXY_KEY = 'A2-GLAXO_0600-0700'
 
         # Carga de Modelos
         try:
@@ -143,18 +133,16 @@ class Buses_model:
 
             if not MODELO_TIEMPO_SUSTITUTO:
                 print(f"Error: El modelo proxy ({PROXY_KEY}) no se pudo cargar.")
-                return # Usar return en lugar de exit() es más seguro dentro de clases
+                exit()
 
         except FileNotFoundError:
             print("Error: Asegúrate de que el archivo 'time_models.pkl' exista en el directorio.")
-            return
+            exit()
 
         # Ejecución de la Simulación
         simulated_data = []
 
         #print(f"\nIniciando simulación de Monte Carlo (Solo Tiempos) con {NUM_ITERACIONES} iteraciones...")
-        #if target_trayecto: print(f"Filtro Trayecto: {target_trayecto}")
-        #if target_interval: print(f"Filtro Horario: {target_interval}")
 
         for trayecto in TRAYECTOS:
             for time_start, time_end in TIME_INTERVALS:
@@ -164,12 +152,11 @@ class Buses_model:
                 
                 time_model = time_models.get(model_key)
                 
-                # --- LÓGICA DE SELECCIÓN Y SUSTITUCIÓN ---
-                # Se mantiene intacta la lógica original. Si el usuario pide ('18:30', '22:15'),
-                # esta condición se activará automáticamente.
+                # Lógica de selección de modelo
                 if not time_model or '1830-2215' in model_key:
                     
                     # Condición específica para el tramo nocturno (18:30 - 22:15)
+                    # Esta lógica se mantiene intacta si el usuario pide este intervalo específico
                     if '1830-2215' in model_key:
                         # Usamos el proxy original (06:00-07:00) para el tiempo
                         time_model = MODELO_TIEMPO_SUSTITUTO
@@ -178,7 +165,7 @@ class Buses_model:
                     else:
                         # Si es otro segmento diferente que falta
                         #print(f"  -> Advertencia: Saltando segmento {model_key} por falta de modelo.")
-                        continue 
+                        continue
                 
                 # Generar muestras usando el modelo
                 try:
@@ -186,34 +173,44 @@ class Buses_model:
                     simulated_times = time_model.generate_samples(NUM_ITERACIONES)
                     
                 except Exception as e:
-                    print(f"  -> Error durante el muestreo del segmento {model_key}: {e}")
+                    #print(f"  -> Error durante el muestreo del segmento {model_key}: {e}")
                     continue
 
                 # Almacenar los resultados simulados
-
-                simulated_data = simulated_times
+                df_segment = pd.DataFrame({
+                    'trayecto': model_key,
+                    'minutos_viaje_simulado': simulated_times,
+                    'iteracion': range(len(simulated_times))
+                })
+                simulated_data.append(df_segment)
                     
                 #if '1830-2215' not in model_key:
                     #print(f"  -> Segmento {model_key} simulado con {len(simulated_times)} muestras.")
 
                 
-        # Consolidación
+        # Consolidación y Exportación
         if simulated_data:
-            #df_simulacion_final = pd.concat(simulated_data, ignore_index=True)
+            df_simulacion_final = pd.concat(simulated_data, ignore_index=True)
             
-            #output_file = 'bus_results_times.csv'
-            #df_simulacion_final.to_csv(output_file, index=False)
+            # Cambiamos el nombre del archivo si es un intervalo específico para evitar sobrescribir
+            #suffix = ""
+            #if target_time_interval:
+            #    suffix = f"_{target_time_interval[0].replace(':','')}-{target_time_interval[1].replace(':','')}"
+            
+            #output_file = f'bus_results_times{suffix}.csv'
+            
+           # df_simulacion_final.to_csv(output_file, index=False)
             
             #print("\n=======================================================")
             #print(f"Simulación de Tiempos COMPLETADA.")
             #print(f"Total de registros simulados: {len(df_simulacion_final)}")
             #print(f"Resultados guardados en: {output_file}")
             #print("=======================================================")
-            return simulated_data
+            return df_simulacion_final
         else:
-            print("\nAlerta: Simulación finalizada sin generar datos.")
-            return []
-    
+            print("\nSimulación finalizada sin generar datos.")
+            return pd.DataFrame()
+        
 
 
     def show_results(self):
