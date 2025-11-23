@@ -85,17 +85,50 @@ class Buses_model:
 
         print("\n Proceso finalizado. Los modelos de tiempo de viaje han sido guardados en 'time_models.pkl'")
 
-    def generate_simulation(self, n_samples=1000):
-        # Definición de Parámetros
+    def generate_simulation(self, target_trayecto=None, target_interval=None, n_samples=1000):
+        """
+        Generates simulation data.
+        
+        Args:
+            target_trayecto (str, optional): Specific route to simulate (e.g., 'A2-GLAXO').
+            target_interval (tuple, optional): Specific time tuple (e.g., ('07:00', '09:30')).
+            n_samples (int): Number of iterations for Monte Carlo.
+        """
+        
+        # Definición de Parámetros Base
         NUM_ITERACIONES = n_samples
-        TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
-        TIME_INTERVALS = [
+        
+        # 1. Configuración de TRAYECTOS
+        all_trayectos = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
+        if target_trayecto:
+            # Si el usuario pide uno específico, usamos solo ese
+            if target_trayecto not in all_trayectos:
+                print(f"Error: El trayecto '{target_trayecto}' no es válido.")
+                return
+            TRAYECTOS = [target_trayecto]
+        else:
+            # Si es None, corremos todos
+            TRAYECTOS = all_trayectos
+
+        # 2. Configuración de INTERVALOS DE TIEMPO
+        all_time_intervals = [
             ('07:00', '09:30'), 
             ('13:30', '18:00'), 
             ('06:00', '07:00'), 
             ('09:30', '13:30'), 
-            ('18:30', '22:15') # Tramo con lógica especial (sustitución)
+            ('18:30', '22:15') # Tramo con lógica especial
         ]
+        
+        if target_interval:
+            # Si el usuario pide un intervalo específico
+            # Nota: target_interval debe ser una tupla, ej: ('18:30', '22:15')
+            if target_interval not in all_time_intervals:
+                 print(f"Advertencia: El intervalo '{target_interval}' no está en la lista estándar, pero se intentará simular.")
+            TIME_INTERVALS = [target_interval]
+        else:
+            # Si es None, corremos todos
+            TIME_INTERVALS = all_time_intervals
+
         # Clave del segmento usado como proxy para TIEMPO
         PROXY_KEY = 'A2-GLAXO_0600-0700' 
 
@@ -103,23 +136,25 @@ class Buses_model:
         try:
             with open('time_models.pkl', 'rb') as file:
                 time_models = pickle.load(file)
-            print("Modelos de tiempo cargados correctamente.")
+            #print("Modelos de tiempo cargados correctamente.")
             
             # Definir el Modelo Sustituto Global (Base)
             MODELO_TIEMPO_SUSTITUTO = time_models.get(PROXY_KEY)
 
             if not MODELO_TIEMPO_SUSTITUTO:
                 print(f"Error: El modelo proxy ({PROXY_KEY}) no se pudo cargar.")
-                exit()
+                return # Usar return en lugar de exit() es más seguro dentro de clases
 
         except FileNotFoundError:
             print("Error: Asegúrate de que el archivo 'time_models.pkl' exista en el directorio.")
-            exit()
+            return
 
         # Ejecución de la Simulación
         simulated_data = []
 
-        print(f"\nIniciando simulación de Monte Carlo (Solo Tiempos) con {NUM_ITERACIONES} iteraciones...")
+        #print(f"\nIniciando simulación de Monte Carlo (Solo Tiempos) con {NUM_ITERACIONES} iteraciones...")
+        #if target_trayecto: print(f"Filtro Trayecto: {target_trayecto}")
+        #if target_interval: print(f"Filtro Horario: {target_interval}")
 
         for trayecto in TRAYECTOS:
             for time_start, time_end in TIME_INTERVALS:
@@ -129,18 +164,20 @@ class Buses_model:
                 
                 time_model = time_models.get(model_key)
                 
-                # Lógica de selección de modelo
+                # --- LÓGICA DE SELECCIÓN Y SUSTITUCIÓN ---
+                # Se mantiene intacta la lógica original. Si el usuario pide ('18:30', '22:15'),
+                # esta condición se activará automáticamente.
                 if not time_model or '1830-2215' in model_key:
                     
                     # Condición específica para el tramo nocturno (18:30 - 22:15)
                     if '1830-2215' in model_key:
                         # Usamos el proxy original (06:00-07:00) para el tiempo
                         time_model = MODELO_TIEMPO_SUSTITUTO
-                        print(f"  -> Sustitución TIEMPO en {model_key}: Usando proxy {PROXY_KEY}.")
+                        #print(f"  -> Sustitución TIEMPO en {model_key}: Usando proxy {PROXY_KEY}.")
 
                     else:
                         # Si es otro segmento diferente que falta
-                        print(f"  -> Advertencia: Saltando segmento {model_key} por falta de modelo.")
+                        #print(f"  -> Advertencia: Saltando segmento {model_key} por falta de modelo.")
                         continue 
                 
                 # Generar muestras usando el modelo
@@ -153,32 +190,29 @@ class Buses_model:
                     continue
 
                 # Almacenar los resultados simulados
-                df_segment = pd.DataFrame({
-                    'trayecto': model_key,
-                    'minutos_viaje_simulado': simulated_times,
-                    'iteracion': range(len(simulated_times))
-                })
-                simulated_data.append(df_segment)
+
+                simulated_data = simulated_times
                     
-                if '1830-2215' not in model_key:
-                    print(f"  -> Segmento {model_key} simulado con {len(simulated_times)} muestras.")
+                #if '1830-2215' not in model_key:
+                    #print(f"  -> Segmento {model_key} simulado con {len(simulated_times)} muestras.")
 
                 
-        # Consolidación y Exportación
+        # Consolidación
         if simulated_data:
-            df_simulacion_final = pd.concat(simulated_data, ignore_index=True)
-            output_file = 'bus_results_times.csv'
-            df_simulacion_final.to_csv(output_file, index=False)
+            #df_simulacion_final = pd.concat(simulated_data, ignore_index=True)
             
-            print("\n=======================================================")
-            print(f"Simulación de Tiempos COMPLETADA.")
-            print(f"Total de registros simulados: {len(df_simulacion_final)}")
-            print(f"Resultados guardados en: {output_file}")
-            print("=======================================================")
-            #return df_simulacion_final
+            #output_file = 'bus_results_times.csv'
+            #df_simulacion_final.to_csv(output_file, index=False)
+            
+            #print("\n=======================================================")
+            #print(f"Simulación de Tiempos COMPLETADA.")
+            #print(f"Total de registros simulados: {len(df_simulacion_final)}")
+            #print(f"Resultados guardados en: {output_file}")
+            #print("=======================================================")
+            return simulated_data
         else:
-            print("\nSimulación finalizada sin generar datos.")
-            #return pd.DataFrame()
+            print("\nAlerta: Simulación finalizada sin generar datos.")
+            return []
     
 
 
@@ -333,22 +367,71 @@ class Pax_model:
 
                 self.lambdas_saved[key] = lambda_
     
-    def generate_simulation(self, n_samples = 10000):
-        #Asumiendo que es un Proceso de Poisson, entonces los tiempos de llegada se comportan como una exponencial
+    def generate_simulation(self, target_trayecto=None, target_interval=None, n_samples=10000):
+        """
+        Simulates passenger arrivals based on a Poisson Process (Exponential distribution).
+        
+        Args:
+            target_trayecto (str, optional): Specific route to filter.
+            target_interval (tuple, optional): Specific time interval ('HH:MM', 'HH:MM').
+            n_samples (int): Number of arrivals to simulate per segment.
+        """
+        
+        # Asumiendo que es un Proceso de Poisson, los tiempos de llegada se comportan como una exponencial
+        data_simulated = []
 
-        data_simulated = {}
+        # Filtrado de intervalos
+        if target_interval:
+            # Convertimos a lista para iterar
+            intervals_to_process = [target_interval]
+        else:
+            intervals_to_process = self.TIME_INTERVALS
 
-        for start_time, end_time in self.TIME_INTERVALS:
-            for t in self.TRAYECTOS:
-                for _ in range(n_samples):
-                    key = f"{t}_{start_time.replace(':', '')}-{end_time.replace(':', '')}"
-                    lambda_act = self.lambdas_saved[key]
-                    t_arrival = random.expovariate(lambda_act)
-                    if key not in data_simulated:
-                        data_simulated[key] = []
-                    data_simulated[key].append(t_arrival)
+        # Filtro de trayectos
+        if target_trayecto:
+            trayectos_to_process = [target_trayecto]
+        else:
+            trayectos_to_process = self.TRAYECTOS
 
+        #print(f"Iniciando simulación de Pasajeros (Poisson) - Muestras: {n_samples}")
 
-        df_pax_simulated = pd.DataFrame(data_simulated)
+        for start_time, end_time in intervals_to_process:
+            for t in trayectos_to_process:
+                
+                # Generamos la key estándar para guardar los datos
+                current_key = f"{t}_{start_time.replace(':', '')}-{end_time.replace(':', '')}"
+                
+                # Definimos qué key usaremos para BUSCAR la lambda en el diccionario guardado
+                lookup_key = current_key
+                
+                # Si estamos en el horario especial (18:30 - 22:15), usamos el lambda de la mañana (06:00-07:00)
+                if '1830-2215' in current_key:
+                    # Construimos la key del proxy manteniendo el mismo trayecto 't'
+                    proxy_key = f"{t}_0600-0700"
+                    #print(f"  -> Aviso: Usando Lambda Proxy ({proxy_key}) para el segmento {current_key}")
+                    lookup_key = proxy_key
 
-        df_pax_simulated.to_csv('pax_time_arrivals.csv', index=False)
+                # Validación de existencia
+                if lookup_key not in self.lambdas_saved:
+                    print(f"  -> Error: No se encontró lambda para {lookup_key}. Saltando...")
+                    continue
+
+                # Obtenemos la tasa (lambda) del diccionario
+                lambda_act = self.lambdas_saved[lookup_key]
+                
+                # Generamos los datos
+                # Optimizamos un poco usando list comprehension en lugar del append en bucle
+                try:
+                    arrivals = [random.expovariate(lambda_act) for _ in range(n_samples)]
+                    data_simulated = arrivals
+                except Exception as e:
+                    print(f"Error generando datos para {current_key}: {e}")
+
+        if data_simulated:
+            #output_file = 'pax_time_arrivals.csv'
+            #df_pax_simulated.to_csv(output_file, index=False)
+            #print(f"Simulación de Pasajeros completada. Guardado en {output_file}")
+            return data_simulated
+        else:
+            print("No se generaron datos (posiblemente claves faltantes o filtros vacíos).")
+            return []
