@@ -222,11 +222,18 @@ class EmpiricDistribution:
                     # If the solution is complex or the conversion fails
                     continue
                     
+            # ...
             if valid_sol is not None:
                 self.inverses.append(valid_sol)
                 if(show_process):
                     display(Math(rf"({i+1}) \; t = {latex(N(valid_sol, 4))}, \quad {y_min:.4f} \leq y \leq {y_max:.4f}"))
+            elif not solutions:
+                # Si SymPy no encuentra ninguna solución (lista vacía), generalmente es porque la pendiente m=0.
+                # En este caso, el valor de x debe ser constante (x_max).
+                print(f"Error: No valid symbolic solution found (likely m=0) for interval {i+1}. Using x_max as inverse.")
+                self.inverses.append(S(x_max)) # S() convierte un valor constante a un objeto SymPy.
             else:
+                # Si hay soluciones pero ninguna es válida dentro del rango, tomamos la primera como fallback.
                 print(f"Error: No valid solution for the interval {i+1}")
                 self.inverses.append(solutions[0])
 
