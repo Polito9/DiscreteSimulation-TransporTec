@@ -4,6 +4,7 @@ import heapq
 import pandas as pd
 from Bus import Bus
 import numpy as np
+from datetime import datetime
 
 
 @dataclass
@@ -30,10 +31,18 @@ class SimulationEngine:
         self.events = []
         self.results_pax = [] 
         self.show_process = show_process
+        
+        #Calculating total seconds duration
+        fmt = '%H:%M'
+        t1 = datetime.strptime(self.start_str, fmt)
+        t2 = datetime.strptime(self.end_str, fmt)
+        delta = t2 - t1
+        self.total_seconds_interval = delta.total_seconds()
 
     def setup(self):
         # 1. Schedule Passengers (CORRECTED LOGIC HERE)
-        print("Generating Passengers (Accumulating Inter-arrival Times)...")
+        if(self.show_process):
+            print("Generating Passengers (Accumulating Inter-arrival Times)...")
         
         for stop_name in self.stops:
             route_key = self.route_map[stop_name]
@@ -59,7 +68,8 @@ class SimulationEngine:
                 heapq.heappush(self.events, (current_sim_time, 2, 'PAX_ARRIVAL', stop_name))
 
         # 2. Schedule Buses
-        print("Scheduling Buses...")
+        if(self.show_process):
+            print("Scheduling Buses...")
         dest_map = {'A2-GLAXO': 'GLAXO', 'GLAXO-DISNEY': 'DISNEY', 'DISNEY-A2': 'A2'}
         
         for bus in self.buses:
@@ -74,9 +84,14 @@ class SimulationEngine:
                     heapq.heappush(self.events, (arrival_time, 1, 'BUS_ARRIVAL', (bus, stop_location, time_drive_min)))
 
     def run(self):
-        print("Running Event Loop...")
+        if(self.show_process):
+            print("Running Event Loop...")
         while self.events:
             time, _, type, data = heapq.heappop(self.events)
+            
+            if(time > self.total_seconds_interval):
+                #End the simulation if it exceeds the total time duration
+                break
             
             if type == 'PAX_ARRIVAL':
                 stop_name = data
@@ -117,33 +132,42 @@ class SimulationEngine:
                 bus.total_capacity_used_pct.append(occupancy)
                 bus.trips_made += 1
 
-    def get_metrics(self):
+    def get_metrics(self, show_metrics = False):
         df_pax = pd.DataFrame(self.results_pax)
         if df_pax.empty:
             print("No passengers boarded.")
-            return
+            return pd.DataFrame(), pd.DataFrame()
 
-        print("\n" + "="*40)
-        print("      SIMULATION RESULTS SUMMARY      ")
-        print("="*40)
+        if(show_metrics):
+            print("\n" + "="*40)
+            print("      SIMULATION RESULTS SUMMARY      ")
+            print("="*40)
 
         # General Metrics
-        print(f"\n>> GENERAL PASSENGER METRICS")
-        print(f"Total Passengers Moved: {len(df_pax)}")
-        print(f"Global Avg Waiting Time: {df_pax['wait_time_min'].mean():.2f} min")
-        print(f"Global Max Waiting Time: {df_pax['wait_time_min'].max():.2f} min")
+            print(f"\n>> GENERAL PASSENGER METRICS")
+            print(f"Total Passengers Moved: {len(df_pax)}")
+            print(f"Global Avg Waiting Time: {df_pax['wait_time_min'].mean():.2f} min")
+            print(f"Global Max Waiting Time: {df_pax['wait_time_min'].max():.2f} min")
 
-        # Metrics By Stop
-        print(f"\n>> METRICS BY STOP (ORIGIN)")
+            # Metrics By Stop
+            print(f"\n>> METRICS BY STOP (ORIGIN)")
+        
         stop_stats = df_pax.groupby('origin')['wait_time_min'].agg(
             Avg_Wait_Min='mean',
             Max_Wait_Min='max'
             #Pax_Count='count'
         ).reset_index().round(2)
-        print(stop_stats.to_string(index=False))
+
+
+        stop_stats = pd.concat([stop_stats, pd.DataFrame({'origin': ['General'], 'Avg_Wait_Min':[df_pax['wait_time_min'].mean()], 'Max_Wait_Min':[df_pax['wait_time_min'].max()]})])
+
+        if(show_metrics):
+            print(stop_stats.to_string(index=False))
 
         # Bus Metrics
-        print(f"\n>> BUS UTILIZATION & COST")
+        if(show_metrics):
+            print(f"\n>> BUS UTILIZATION & COST")
+        
         bus_stats = []
         for bus in self.buses:
             avg_cap = np.mean(bus.total_capacity_used_pct) if bus.total_capacity_used_pct else 0.0
@@ -152,9 +176,13 @@ class SimulationEngine:
             
             bus_stats.append({
                 'Bus ID': bus.id,
-                'Avg Occupancy': f"{avg_cap:.1f}%",
+                'Avg Occupancy': f"{avg_cap:.1f}",
                 'Trips Made': bus.trips_made,
-                'Total Cost': f"${total_cost:,.2f}",
-                'Total gas (L)': f"{total_gas:,.2f}",
+                'Total Cost': f"{total_cost:.2f}",
+                'Total gas (L)': f"{total_gas:.2f}",
             })
-        print(pd.DataFrame(bus_stats).to_string(index=False))
+
+        if(show_metrics):
+            print(pd.DataFrame(bus_stats).to_string(index=False))
+
+        return stop_stats, pd.DataFrame(bus_stats)
