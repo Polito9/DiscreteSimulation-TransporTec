@@ -16,17 +16,28 @@ class Buses_model:
         pass
 
     def generate_model(self):
-        #Importing data
+        # --- 1. DEFINE MANUAL DATA FOR A2-DISNEY ---
+        # Mapping intervals to (min_minutes, max_minutes) based on your Google Maps data
+        A2_DISNEY_DATA = {
+            '06:00-07:00': (5, 8),
+            '07:00-09:30': (5, 9),
+            '09:30-13:30': (4, 7),
+            '13:30-18:00': (4, 10),
+            '18:30-22:15': (4, 6)
+        }
+
+        # Importing data
         cleaner = Cleaner.Cleaner()
         cleaner.set_path_info({'7': '07_v2.xlsx', '50':'50.xlsx'})
         df = cleaner.process_data(export_csv=True)
 
-        #Small check
+        # Small check
         df['hora_salida'] = pd.to_datetime(df['hora_salida'], format='%H:%M').dt.time
-        df = df.dropna(subset=['Usuarios']) # Limpieza rápida si hay NaNs
+        df = df.dropna(subset=['Usuarios']) 
 
-        # Definición de Segmentos
-        TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
+        # Definition of Segments (Added A2-DISNEY)
+        TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2', 'A2-DISNEY']
+        
         TIME_INTERVALS = [
             ('07:00', '09:30'), 
             ('13:30', '18:00'), 
@@ -34,36 +45,67 @@ class Buses_model:
             ('09:30', '13:30'), 
             ('18:30', '22:15')
         ]
-        #TIEMPOS DE VIAJE DE AUTOBUSES
 
         time_models = {}
 
-        # Modelado Iterativo
         print("Iniciando modelado de la distribución de Tiempos de Viaje...")
 
         for trayecto in TRAYECTOS:
-            sub_trayecto = df.loc[df['trayecto'] == trayecto]
+            # We only filter DF if it's NOT the synthetic route
+            if trayecto != 'A2-DISNEY':
+                sub_trayecto = df.loc[df['trayecto'] == trayecto]
             
             for time_start_str, time_end_str in TIME_INTERVALS:
                 
-                # Convertir strings de hora a objetos time para la comparación
-                time_start = time.fromisoformat(time_start_str)
-                time_end = time.fromisoformat(time_end_str)
-                
-                # Filtrar datos por el intervalo de tiempo
-                sub_time = sub_trayecto.loc[
-                    (sub_trayecto['hora_salida'] >= time_start) & 
-                    (sub_trayecto['hora_salida'] < time_end)
-                ]
-                
                 model_key = f"{trayecto}_{time_start_str.replace(':', '')}-{time_end_str.replace(':', '')}"
-
-                if not sub_time.empty and sub_time['minutos_viaje'].count() > 5:
-                    time_data = sub_time['minutos_viaje'].tolist()
+                time_data = [] # List to hold our duration data (real or synthetic)
+                
+                # --- BRANCH A: SYNTHETIC DATA (A2-DISNEY) ---
+                if trayecto == 'A2-DISNEY':
+                    # Create a key to look up the manual data
+                    interval_key = f"{time_start_str}-{time_end_str}"
                     
-                    # Para variables continuas (tiempo), usamos un número fijo de bins (ej. 15)
-                    # para modelar la forma de la distribución.
+                    if interval_key in A2_DISNEY_DATA:
+                        min_t, max_t = A2_DISNEY_DATA[interval_key]
+                        
+                        # 1. Calculate Normal Distribution Parameters for Travel
+                        mu = (min_t + max_t) / 2
+                        sigma = (max_t - min_t) / 4
+                        
+                        # 2. Generate 1000 synthetic points
+                        n_samples = 1000
+                        # Travel time (Normal)
+                        synthetic_travel = np.random.normal(mu, sigma, n_samples)
+                        # Stop time (Uniform between 2 and 3 minutes)
+                        synthetic_stop = np.random.uniform(1, 3, n_samples)
+                        
+                        # 3. Combine and ensure no negative values (sanity check)
+                        total_times = synthetic_travel + synthetic_stop
+                        total_times = total_times[total_times > 0] 
+                        
+                        time_data = total_times.tolist()
+                        print(f"   -> Generados datos sintéticos para {model_key} (Mu: {mu:.2f} + Stop)")
+                    else:
+                        print(f"   -> Advertencia: No hay configuración manual para {model_key}")
+
+                # --- BRANCH B: REAL DATA (EXISTING ROUTES) ---
+                else:
+                    time_start = time.fromisoformat(time_start_str)
+                    time_end = time.fromisoformat(time_end_str)
+                    
+                    sub_time = sub_trayecto.loc[
+                        (sub_trayecto['hora_salida'] >= time_start) & 
+                        (sub_trayecto['hora_salida'] < time_end)
+                    ]
+                    
+                    if not sub_time.empty and sub_time['minutos_viaje'].count() > 5:
+                        time_data = sub_time['minutos_viaje'].tolist()
+
+                # --- COMMON MODEL TRAINING ---
+                if len(time_data) > 5:
                     time_model = EmpiricDistribution()
+                    
+                    # Use the data (whether real or synthetic) to set the histogram
                     time_model.set_histogram(time_data, n_bins=15) 
                     
                     try:
@@ -71,13 +113,11 @@ class Buses_model:
                         time_models[model_key] = time_model
                         print(f"  -> Modelo de Tiempo {model_key} entrenado.")
                     except Exception as e:
-                        # Captura de errores de Sympy, aunque deberían ser menos comunes aquí
                         print(f"  -> Error al entrenar el modelo de Tiempo {model_key}: {e}")
                         time_models[model_key] = None
                 else:
                     time_models[model_key] = None
                     print(f"  -> Advertencia: Sin datos suficientes para modelar {model_key}")
-
 
         # Almacenamiento de los Modelos
         with open('time_models.pkl', 'wb') as file:
@@ -96,7 +136,7 @@ class Buses_model:
         """
         # Definición de Parámetros
         NUM_ITERACIONES = n_samples
-        TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
+        TRAYECTOS = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2', 'A2-DISNEY']
         
         # Lista completa de intervalos
         ALL_TIME_INTERVALS = [
@@ -192,14 +232,7 @@ class Buses_model:
         if simulated_data:
             df_simulacion_final = pd.concat(simulated_data, ignore_index=True)
             
-            # Cambiamos el nombre del archivo si es un intervalo específico para evitar sobrescribir
-            #suffix = ""
-            #if target_time_interval:
-            #    suffix = f"_{target_time_interval[0].replace(':','')}-{target_time_interval[1].replace(':','')}"
-            
-            #output_file = f'bus_results_times{suffix}.csv'
-            
-           # df_simulacion_final.to_csv(output_file, index=False)
+            #df_simulacion_final.to_csv('bus_results_times.csv', index=False)
             
             #print("\n=======================================================")
             #print(f"Simulación de Tiempos COMPLETADA.")

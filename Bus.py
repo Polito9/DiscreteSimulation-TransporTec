@@ -11,20 +11,28 @@ class Bus:
         # Create a temporary column to identify the route name without the time
         df['base_trayecto'] = df['trayecto'].apply(lambda x: x.split('_')[0])
 
-        # Define the sort order list based on the start_place
-        if start_place == 'GLAXO':
-            # Cycle: GLAXO -> DISNEY -> A2 -> GLAXO
-            order = ['GLAXO-DISNEY', 'DISNEY-A2', 'A2-GLAXO']
-            
-        elif start_place == 'A2':
-            order = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
-            
-        elif start_place == 'DISNEY':
-            # Cycle: DISNEY -> A2 -> GLAXO -> DISNEY
-            order = ['DISNEY-A2', 'A2-GLAXO', 'GLAXO-DISNEY']
-            
+        if(self.route_type == 1):
+            # Define the sort order list based on the start_place
+            if start_place == 'GLAXO':
+                # Cycle: GLAXO -> DISNEY -> A2 -> GLAXO
+                order = ['GLAXO-DISNEY', 'DISNEY-A2', 'A2-GLAXO']
+                
+            elif start_place == 'A2':
+                order = ['A2-GLAXO', 'GLAXO-DISNEY', 'DISNEY-A2']
+                
+            elif start_place == 'DISNEY':
+                # Cycle: DISNEY -> A2 -> GLAXO -> DISNEY
+                order = ['DISNEY-A2', 'A2-GLAXO', 'GLAXO-DISNEY']
+
+            else:
+                raise ValueError("start_place must be 'GLAXO', 'A2', or 'DISNEY'")
         else:
-            raise ValueError("start_place must be 'GLAXO', 'A2', or 'DISNEY'")
+            if start_place == 'A2':
+                order = ['A2-DISNEY', 'DISNEY-A2']
+            elif start_place == 'DISNEY':
+                order = ['DISNEY-A2', 'A2-DISNEY']
+            else:
+                raise ValueError("start_place must be 'A2', or 'DISNEY'")
 
         sort_map = {name: i for i, name in enumerate(order)}
 
@@ -43,7 +51,7 @@ class Bus:
 
         return df_sorted
 
-    def __init__(self, id, start_second, start_place, cost, capacity, start_time, end_time, r_base, fp, c_hour, samples = 1000):
+    def __init__(self, id, start_second, start_place, cost, capacity, start_time, end_time, r_base, fp, c_hour, route_type, samples = 1000):
 
         self.id = id
         self.start_second = start_second
@@ -53,9 +61,18 @@ class Bus:
         self.r_base = r_base
         self.fp = fp
         self.c_hour = c_hour
+        self.route_type = route_type #1: normal, 2: just DISNEY-A2
 
         buses_model = Buses_model()
+
         data = buses_model.generate_simulation(target_time_interval=(start_time, end_time), n_samples=samples)
+        if(self.route_type == 1):
+            #Remove the A2-DISNEY
+            data = data.loc[~data['trayecto'].str.contains('A2-DISNEY', na=False)]
+        else:
+            #Remove GLAXO-DISNEY and A2-GLAXO
+            data = data.loc[~data['trayecto'].str.contains('GLAXO-DISNEY', na=False)]
+            data = data.loc[~data['trayecto'].str.contains('A2-GLAXO', na=False)]
         sorted_data = self.sort_trajectory_data(data, self.start_place)
         self.times = sorted_data.reset_index().drop(columns=['index'])
 
