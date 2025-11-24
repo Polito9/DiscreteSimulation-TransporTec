@@ -2,14 +2,10 @@ import pandas as pd
 from Model_Training import Buses_model
 
 class Bus:
-    id = ''
-    start_second = 0
-    start_place = ''
-    cost = 0.0
-    capacity = 0
-    times = pd.DataFrame()
-    trips_made = 0
-    total_capacity_used_pct = []
+    def caculate_gas(self, n_pax, time, distance):
+        weight_pax = 73
+        total_gas = ((distance/self.r_base)*(1+(n_pax*weight_pax)/100 *self.fp)+ max(0,((time-distance)/60 * self.c_hour)))
+        return total_gas
 
     def sort_trajectory_data(self, df, start_place):
         # Create a temporary column to identify the route name without the time
@@ -47,16 +43,22 @@ class Bus:
 
         return df_sorted
 
-    def __init__(self, id, start_second, start_place, cost, capacity, start_time, end_time, samples = 1000):
+    def __init__(self, id, start_second, start_place, cost, capacity, start_time, end_time, r_base, fp, c_hour, samples = 1000):
 
         self.id = id
         self.start_second = start_second
         self.start_place = start_place
         self.cost = cost
         self.capacity = capacity
+        self.r_base = r_base
+        self.fp = fp
+        self.c_hour = c_hour
 
         buses_model = Buses_model()
-
         data = buses_model.generate_simulation(target_time_interval=(start_time, end_time), n_samples=samples)
         sorted_data = self.sort_trajectory_data(data, self.start_place)
         self.times = sorted_data.reset_index().drop(columns=['index'])
+
+        self.trips_made = 0
+        self.total_capacity_used_pct = []
+        self.gas_used = []

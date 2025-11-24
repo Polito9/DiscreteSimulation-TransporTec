@@ -23,6 +23,9 @@ class SimulationEngine:
         self.start_str, self.end_str = time_interval
         
         self.route_map = {'A2': 'A2-GLAXO', 'GLAXO': 'GLAXO-DISNEY', 'DISNEY': 'DISNEY-A2'}
+
+        #To modify for new route
+        self.distances = {'A2': 1.7, 'GLAXO':0.7, 'DISNEY':1.5}
         self.stops = {k: Stop(name=k) for k in self.route_map.keys()}
         self.events = []
         self.results_pax = [] 
@@ -61,13 +64,14 @@ class SimulationEngine:
         
         for bus in self.buses:
             for _, row in bus.times.iterrows():
+                time_drive_min = row['minutos_viaje_simulado']
                 arrival_time = row['accumulated_seconds']
                 base_route = row['trayecto'].split('_')[0]
                 stop_location = dest_map.get(base_route)
                 
                 if stop_location:
                     # Priority 1 ensures bus processing happens *after* passenger arrival if times are equal
-                    heapq.heappush(self.events, (arrival_time, 1, 'BUS_ARRIVAL', (bus, stop_location)))
+                    heapq.heappush(self.events, (arrival_time, 1, 'BUS_ARRIVAL', (bus, stop_location, time_drive_min)))
 
     def run(self):
         print("Running Event Loop...")
@@ -80,7 +84,7 @@ class SimulationEngine:
                 if(self.show_process):
                     print(f'Pax arrived at {stop_name} at second {time}')
             elif type == 'BUS_ARRIVAL':
-                bus, location = data
+                bus, location, total_min = data
                 current_stop = self.stops[location]
                 
                 # Boarding Logic
@@ -109,6 +113,7 @@ class SimulationEngine:
                     print(f'Bus {bus.id} arrived at {location} and charged {boarding_count} passengers at second {time}')
 
                 occupancy = (boarding_count / bus.capacity) * 100
+                bus.gas_used.append(bus.caculate_gas(boarding_count, total_min, self.distances[location]))
                 bus.total_capacity_used_pct.append(occupancy)
                 bus.trips_made += 1
 
@@ -142,12 +147,14 @@ class SimulationEngine:
         bus_stats = []
         for bus in self.buses:
             avg_cap = np.mean(bus.total_capacity_used_pct) if bus.total_capacity_used_pct else 0.0
+            total_gas = np.sum(bus.gas_used)
             total_cost = bus.trips_made * bus.cost
             
             bus_stats.append({
                 'Bus ID': bus.id,
                 'Avg Occupancy': f"{avg_cap:.1f}%",
                 'Trips Made': bus.trips_made,
-                'Total Cost': f"${total_cost:,.2f}"
+                'Total Cost': f"${total_cost:,.2f}",
+                'Total gas (L)': f"{total_gas:,.2f}",
             })
         print(pd.DataFrame(bus_stats).to_string(index=False))
