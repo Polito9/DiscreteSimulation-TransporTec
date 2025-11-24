@@ -76,8 +76,8 @@ class Buses_model:
                         n_samples = 1000
                         # Travel time (Normal)
                         synthetic_travel = np.random.normal(mu, sigma, n_samples)
-                        # Stop time (Uniform between 2 and 3 minutes)
-                        synthetic_stop = np.random.uniform(1, 3, n_samples)
+                        # Stop time (Uniform between 0 and 2 minutes)
+                        synthetic_stop = np.random.uniform(0, 2, n_samples)
                         
                         # 3. Combine and ensure no negative values (sanity check)
                         total_times = synthetic_travel + synthetic_stop
